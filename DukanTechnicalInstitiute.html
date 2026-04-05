@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ku" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سیستەمی بەڕێوەبردنی DTI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans Arabic', sans-serif;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .gradient-orange {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+        }
+
+        .gradient-blue {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        }
+
+        .gradient-emerald {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+
+        .animate-in {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* --- PRINT OPTIMIZATION --- */
+        @media print {
+            body {
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            /* Hide everything by default */
+            body * {
+                visibility: hidden;
+            }
+
+            /* Show only the print area and its children */
+            .print-area,
+            .print-area * {
+                visibility: visible;
+            }
+
+            /* Position the table at the top of the page */
+            .print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100% !important;
+                box-shadow: none !important;
+                border: none !important;
+            }
+
+            /* Hide UI elements even if they are inside the print-area */
+            .no-print {
+                display: none !important;
+            }
+
+            /* Standardize text for paper */
+            table {
+                font-size: 12pt;
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            th,
+            td {
+                border-bottom: 1px solid #e2e8f0 !important;
+                padding: 10px !important;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-[#f8fafc] min-h-screen text-slate-900" x-data="app">
+
+    <div x-show="loading"
+        class="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center backdrop-blur-sm">
+        <div class="text-center">
+            <div
+                class="inline-block animate-spin rounded-full h-16 w-16 border-4 border-orange-500 border-t-transparent">
+            </div>
+            <p class="text-white mt-6 font-bold text-xl">تکایە چاوەڕوان بن...</p>
+        </div>
+    </div>
+
+    <div x-show="!user" x-cloak class="min-h-screen flex items-center justify-center bg-[#0f172a] p-4">
+        <div class="glass p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md animate-in text-center">
+            <div
+                class="gradient-orange text-white w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6 text-5xl shadow-xl">
+                ⚡</div>
+            <h2 class="text-4xl font-black text-slate-800 mb-8"
+                x-text="isRegister ? 'تۆمارکردنی نوێ' : 'چوونە ژوورەوە'"></h2>
+            <div class="space-y-5">
+                <input type="email" x-model="email"
+                    class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 text-left"
+                    placeholder="Email">
+                <input type="password" x-model="password"
+                    class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 text-left"
+                    placeholder="Password">
+                <button @click="isRegister ? signUp() : signIn()"
+                    class="w-full gradient-orange text-white py-5 rounded-2xl font-bold text-lg shadow-lg"
+                    x-text="isRegister ? 'دروستکردنی هەژمار' : 'چوونە ژوورەوە'"></button>
+                <button @click="isRegister = !isRegister" class="w-full text-slate-500 text-sm font-bold"
+                    x-text="isRegister ? 'بگەڕێوە بۆ چوونە ژوورەوە' : 'دروستکردنی هەژمارێکی نوێ'"></button>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="user" x-cloak class="pb-20">
+        <header
+            class="max-w-6xl mx-auto flex justify-between items-center my-8 glass p-6 rounded-[2rem] shadow-xl sticky top-4 z-50 no-print">
+            <div class="flex items-center gap-4">
+                <div class="gradient-orange text-white px-5 py-2 rounded-2xl font-black">DTI</div>
+                <h1 class="text-xl md:text-2xl font-black text-slate-800">سیستەمی بەڕێوەبردن</h1>
+            </div>
+            <button @click="logout()" class="bg-red-50 text-red-600 px-6 py-2 rounded-2xl font-bold">دەرچوون</button>
+        </header>
+
+        <main class="max-w-6xl mx-auto px-4">
+            <div x-show="view === 'menu'" class="space-y-10 animate-in no-print">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-6">
+                        <div class="w-16 h-16 rounded-2xl gradient-blue flex items-center justify-center text-3xl">📤
+                        </div>
+                        <div>
+                            <p class="text-slate-400 font-bold text-sm">کۆی دەرچوو</p>
+                            <p class="text-3xl font-black" x-text="stats.outgoing"></p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-6">
+                        <div class="w-16 h-16 rounded-2xl gradient-emerald flex items-center justify-center text-3xl">📥
+                        </div>
+                        <div>
+                            <p class="text-slate-400 font-bold text-sm">کۆی هاتوو</p>
+                            <p class="text-3xl font-black" x-text="stats.incoming"></p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-6">
+                        <div class="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center text-3xl">📄
+                        </div>
+                        <div>
+                            <p class="text-slate-400 font-bold text-sm">گشتی</p>
+                            <p class="text-3xl font-black" x-text="stats.total"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    <button @click="setView('outgoing')"
+                        class="bg-white p-4 rounded-[3.5rem] shadow-xl hover:-translate-y-2 transition-all">
+                        <div class="gradient-blue text-white p-12 md:p-20 rounded-[3rem] text-center">
+                            <span class="text-6xl md:text-8xl block mb-6">📤</span><span
+                                class="text-2xl md:text-4xl font-black">بەشی دەرچوو</span>
+                        </div>
+                    </button>
+                    <button @click="setView('incoming')"
+                        class="bg-white p-4 rounded-[3.5rem] shadow-xl hover:-translate-y-2 transition-all">
+                        <div class="gradient-emerald text-white p-12 md:p-20 rounded-[3rem] text-center">
+                            <span class="text-6xl md:text-8xl block mb-6">📥</span><span
+                                class="text-2xl md:text-4xl font-black">بەشی هاتوو</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <div x-show="view !== 'menu'" class="space-y-8 animate-in">
+                <div class="flex flex-wrap gap-4 items-center bg-white p-6 rounded-[2.5rem] shadow-sm no-print">
+                    <button @click="view = 'menu'" class="bg-slate-100 p-4 rounded-2xl">🔙 گەڕانەوە</button>
+                    <input type="text" x-model="search" placeholder="گەڕان..."
+                        class="flex-1 min-w-[200px] p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 ring-orange-500 font-bold">
+                    <button @click="exportToExcel()"
+                        class="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-bold">Excel 📊</button>
+                    <button @click="window.print()"
+                        class="bg-slate-800 text-white px-8 py-4 rounded-2xl font-bold">Print PDF 🖨️</button>
+                </div>
+
+                <div x-show="view === 'outgoing'" class="flex gap-4 no-print">
+                    <button @click="subView = 'new'"
+                        :class="subView === 'new' ? 'gradient-orange text-white' : 'bg-white text-slate-500'"
+                        class="px-8 py-3 rounded-xl font-bold shadow-md transition-all">تۆمارکردنی نوێ</button>
+                    <button @click="subView = 'all'"
+                        :class="subView === 'all' ? 'gradient-orange text-white' : 'bg-white text-slate-500'"
+                        class="px-8 py-3 rounded-xl font-bold shadow-md transition-all">سەرجەم دەرچووەکان</button>
+                </div>
+
+                <div x-show="view === 'incoming' || (view === 'outgoing' && subView === 'new')"
+                    class="bg-white rounded-[3rem] shadow-xl p-6 md:p-10 border border-slate-100 no-print">
+                    <h2 class="text-2xl font-black mb-8 text-slate-800 border-r-4 border-orange-500 pr-4"
+                        x-text="view === 'incoming' ? 'تۆمارکردنی هاتوو' : 'تۆمارکردنی دەرچووی نوێ'"></h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div class="space-y-2"><label class="text-xs font-bold text-slate-400">بەروار</label><input
+                                type="date" x-model="form.doc_date"
+                                class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold"></div>
+                        <div class="space-y-2"><label class="text-xs font-bold text-slate-400">ژمارەی
+                                نوسراو</label><input type="text" x-model="form.doc_number"
+                                class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold"></div>
+                        <div class="space-y-2"><label class="text-xs font-bold text-slate-400">ناو / نێرەر</label><input
+                                type="text" x-model="form.sender_name"
+                                class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold"></div>
+                        <div class="md:col-span-3 space-y-2">
+                            <label class="text-xs font-bold text-slate-400">ئەپڵۆد کردنی فایل (فۆتۆ یان PDF)</label>
+                            <input type="file" @change="handleFileUpload($event)"
+                                class="w-full p-6 bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:border-orange-400 transition-colors">
+                        </div>
+                        <select x-model="form.delivery_type" class="p-4 bg-slate-50 rounded-2xl border-none font-bold">
+                            <option value="">جۆری گەیاندن</option>
+                            <option>سیستەم</option>
+                            <option>ئیمەیڵ</option>
+                            <option>بە دەستی</option>
+                        </select>
+                        <select x-model="form.department" class="p-4 bg-slate-50 rounded-2xl border-none font-bold">
+                            <option value="">بۆ بەشی</option>
+                            <option>کارگێڕی</option>
+                            <option>دارایی</option>
+                            <option>نوسینگە</option>
+                        </select>
+                        <input type="text" x-model="form.subject" placeholder="بابەت"
+                            class="p-4 bg-slate-50 rounded-2xl border-none font-bold">
+                        <textarea x-model="form.notes"
+                            class="md:col-span-3 p-6 bg-slate-50 rounded-[2rem] border-none h-32"
+                            placeholder="تێبینییەکان..."></textarea>
+                        <div class="md:col-span-3 flex justify-end mt-4">
+                            <button @click="saveToSupabase()"
+                                class="w-full md:w-auto px-20 py-5 gradient-orange text-white rounded-2xl font-black text-xl shadow-xl hover:scale-105 transition-transform">پاشەکەوت
+                                کردن ✨</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="view === 'incoming' || (view === 'outgoing' && subView === 'all')"
+                    class="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-slate-100 print-area">
+
+                    <div class="hidden print:block text-center p-8">
+                        <h1 class="text-3xl font-black text-slate-800">بەڕێوەبەرایەتی تەکنەلۆجیای زانیاری - DTI</h1>
+                        <h2 class="text-xl font-bold mt-2 text-orange-600"
+                            x-text="view === 'incoming' ? 'لیستی نوسراوە هاتوەکان' : 'لیستی نوسراوە دەرچووەکان'"></h2>
+                        <p class="text-sm text-slate-500 mt-1"
+                            x-text="'بەرواری چاپکردن: ' + new Date().toLocaleDateString('ku-IQ')"></p>
+                        <div class="border-b-2 border-slate-200 mt-4 mx-auto w-1/2"></div>
+                    </div>
+
+                    <table class="w-full text-right">
+                        <thead class="bg-slate-50 text-slate-400 text-sm">
+                            <tr>
+                                <th class="p-6">ژمارە</th>
+                                <th class="p-6">بەروار</th>
+                                <th class="p-6">نێرەر / بابەت</th>
+                                <th class="p-6">بەش</th>
+                                <th class="p-6 text-center no-print">کردار</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <template x-for="item in filteredItems" :key="item.id">
+                                <tr class="hover:bg-slate-50 cursor-pointer">
+                                    <td class="p-6 font-black text-orange-600" x-text="item.doc_number"></td>
+                                    <td class="p-6 font-bold text-slate-500" x-text="item.doc_date"></td>
+                                    <td class="p-6">
+                                        <div class="font-black text-slate-800" x-text="item.sender_name"></div>
+                                        <div class="text-sm text-slate-500" x-text="item.subject"></div>
+                                    </td>
+                                    <td class="p-6 font-bold" x-text="item.department"></td>
+                                    <td class="p-6 flex justify-center gap-3 no-print" @click.stop>
+                                        <template x-if="item.file_url">
+                                            <a :href="item.file_url" target="_blank"
+                                                class="text-emerald-500 hover:scale-120 transition-transform">📂</a>
+                                        </template>
+                                        <button @click="deleteItem(item.id)" class="text-red-500">🗑️</button>
+                                        <button @click="selectedItem = item" class="text-blue-500">👁️</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div x-show="selectedItem" x-cloak
+        class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md no-print">
+        <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl animate-in overflow-hidden">
+            <div class="p-6 border-b flex justify-between items-center bg-slate-50">
+                <h3 class="font-black">زانیاری نوسراو</h3>
+                <button @click="selectedItem = null" class="text-xl">✕</button>
+            </div>
+            <div class="p-8 space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="text-xs text-slate-400">ژمارە</label>
+                        <p class="font-black text-orange-600" x-text="selectedItem?.doc_number"></p>
+                    </div>
+                    <div><label class="text-xs text-slate-400">بەروار</label>
+                        <p class="font-bold" x-text="selectedItem?.doc_date"></p>
+                    </div>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-xl"><label class="text-xs text-slate-400">بابەت</label>
+                    <p class="font-bold" x-text="selectedItem?.subject"></p>
+                </div>
+                <div class="bg-orange-50 p-4 rounded-xl border border-orange-100"><label
+                        class="text-xs text-orange-400">تێبینی</label>
+                    <p x-text="selectedItem?.notes || 'تێبینی نییە'"></p>
+                </div>
+                <template x-if="selectedItem?.file_url">
+                    <a :href="selectedItem.file_url" target="_blank"
+                        class="block w-full text-center py-4 bg-emerald-500 text-white rounded-2xl font-bold">بینینی
+                        فایل 📂</a>
+                </template>
+                <button @click="selectedItem = null"
+                    class="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold">داخستن</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyD44MNWl0J77XqkjZDNWzZkZJ0v_Ksm_6M",
+            authDomain: "dti-kargery.firebaseapp.com",
+            projectId: "dti-kargery",
+            appId: "1:293044310144:web:271993ec72f4e6ac4e5665"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
+        const SB_URL = "https://trombxiufwgvkfxuqtqt.supabase.co";
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyb21ieGl1ZndndmtmeHVxdHF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyMTA0MDAsImV4cCI6MjA4Nzc4NjQwMH0.-4vKwaom6d0xLN72_cjXEYtxEaUqyaVZH5bQlphnH2A";
+        const supabaseClient = window.supabase.createClient(SB_URL, SB_KEY);
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('app', () => ({
+                loading: true,
+                user: null,
+                view: 'menu',
+                subView: 'new',
+                isRegister: false,
+                email: '',
+                password: '',
+                items: [],
+                search: '',
+                selectedItem: null,
+                selectedFile: null,
+                stats: { incoming: 0, outgoing: 0, total: 0 },
+                form: { doc_date: '', doc_number: '', sender_name: '', delivery_type: '', department: '', subject: '', notes: '', file_url: '' },
+
+                init() {
+                    auth.onAuthStateChanged((user) => {
+                        this.user = user;
+                        if (user) {
+                            this.fetchData().finally(() => { this.loading = false; });
+                        } else {
+                            this.loading = false;
+                        }
+                    });
+                },
+
+                async fetchData() {
+                    const { data, error } = await supabaseClient.from('documents').select('*').order('created_at', { ascending: false });
+                    if (!error) {
+                        this.items = data;
+                        this.stats.total = data.length;
+                        this.stats.incoming = data.filter(i => i.type === 'incoming').length;
+                        this.stats.outgoing = data.filter(i => i.type === 'outgoing').length;
+                    }
+                },
+
+                handleFileUpload(event) { this.selectedFile = event.target.files[0]; },
+
+                async saveToSupabase() {
+                    if (!this.form.doc_number || !this.form.subject) return alert("تکایە خانەکان پڕ بکەوە");
+                    this.loading = true;
+                    try {
+                        let finalFileUrl = '';
+                        if (this.selectedFile) {
+                            const fileName = `${Date.now()}-${this.selectedFile.name}`;
+                            const { error } = await supabaseClient.storage.from('documents-storage').upload(`uploads/${fileName}`, this.selectedFile);
+                            if (error) throw error;
+                            const { data: publicData } = supabaseClient.storage.from('documents-storage').getPublicUrl(`uploads/${fileName}`);
+                            finalFileUrl = publicData.publicUrl;
+                        }
+                        const payload = { ...this.form, file_url: finalFileUrl, user_id: this.user.uid, type: this.view };
+                        const { error } = await supabaseClient.from('documents').insert([payload]);
+                        if (error) throw error;
+                        await this.fetchData();
+                        this.form = { doc_date: '', doc_number: '', sender_name: '', delivery_type: '', department: '', subject: '', notes: '', file_url: '' };
+                        this.selectedFile = null;
+                        if (this.view === 'outgoing') this.subView = 'all';
+                        alert("بە سەرکەوتوویی تۆمارکرا ✨");
+                    } catch (err) { alert("هەڵەیەک ڕوویدا: " + err.message); } finally { this.loading = false; }
+                },
+
+                async deleteItem(id) {
+                    if (!confirm("دڵنیای؟")) return;
+                    await supabaseClient.from('documents').delete().eq('id', id);
+                    this.fetchData();
+                },
+
+                signIn() {
+                    this.loading = true;
+                    auth.signInWithEmailAndPassword(this.email, this.password).catch(e => { alert("هەڵە هەیە"); this.loading = false; });
+                },
+
+                signUp() {
+                    this.loading = true;
+                    auth.createUserWithEmailAndPassword(this.email, this.password).catch(e => { alert(e.message); this.loading = false; });
+                },
+
+                logout() { auth.signOut().then(() => location.reload()); },
+                setView(v) { this.view = v; this.subView = 'new'; },
+
+                get filteredItems() {
+                    let list = this.items.filter(i => i.type === this.view);
+                    if (this.search) {
+                        const s = this.search.toLowerCase();
+                        list = list.filter(i => (i.subject?.toLowerCase().includes(s)) || (i.doc_number?.toLowerCase().includes(s)) || (i.sender_name?.toLowerCase().includes(s)));
+                    }
+                    return list;
+                },
+
+                exportToExcel() {
+                    const data = this.filteredItems.map(i => ({ 'ژمارە': i.doc_number, 'بەروار': i.doc_date, 'نێرەر': i.sender_name, 'بابەت': i.subject }));
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Data");
+                    XLSX.writeFile(wb, `DTI_${this.view}.xlsx`);
+                }
+            }));
+        });
+    </script>
+</body>
+
+</html>
