@@ -405,14 +405,16 @@
                         let finalFileUrl = '';
                         if (this.selectedFile) {
                             const fileName = `${Date.now()}-${this.selectedFile.name}`;
-                            const { error } = await supabaseClient.storage.from('documents-storage').upload(`uploads/${fileName}`, this.selectedFile);
-                            if (error) throw error;
-                            const { data: publicData } = supabaseClient.storage.from('documents-storage').getPublicUrl(`uploads/${fileName}`);
-                            finalFileUrl = publicData.publicUrl;
+                            const { error: uploadError } = await supabaseClient.storage.from('documents-storage').upload(`uploads/${fileName}`, this.selectedFile);
+                            if (uploadError) throw uploadError;
+                            const { data } = supabaseClient.storage.from('documents-storage').getPublicUrl(`uploads/${fileName}`);
+                            if (data && data.publicUrl) {
+                                finalFileUrl = data.publicUrl;
+                            }
                         }
                         const payload = { ...this.form, file_url: finalFileUrl, user_id: this.user.uid, type: this.view };
-                        const { error } = await supabaseClient.from('documents').insert([payload]);
-                        if (error) throw error;
+                        const { error: insertError } = await supabaseClient.from('documents').insert([payload]);
+                        if (insertError) throw insertError;
                         await this.fetchData();
                         this.form = { doc_date: '', doc_number: '', sender_name: '', delivery_type: '', department: '', subject: '', notes: '', file_url: '' };
                         this.selectedFile = null;
